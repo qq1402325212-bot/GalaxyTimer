@@ -1,0 +1,101 @@
+{
+    "1": {
+        "sName": "影子称号",
+        "sCDText": "影子称号冷却中:",
+        "sReadyText": "影子称号就绪",
+        "iTime": 60,
+        "lKeyCode": [
+            [
+                "right ctrl",
+                "right",
+                "ctrl"
+            ]
+        ],
+        "bOpen": true,
+        "bReset": true,
+        "iFontSize": 16,
+        "cdColor": "#ffff0c",
+        "readyColor": "#00ff77",
+        "bgColor": "#b03a44",
+        "tPos": [
+            1829,
+            1280
+        ],
+        "bCycle": false,
+        "sPic": "yingzi.png",
+        "iConSize": 70,
+        "iBoardSize": 4,
+        "boardColor": "#000000",
+        "bTriggerInCd": true,
+        "bIconTimer": true,
+        "bVoice": true,
+        "groupId": 0,
+        "force_match": true,
+        "sMaskPic": ""
+    },
+    "2": {
+        "sName": "百鬼夜行",
+        "sCDText": "百鬼夜行冷却中:",
+        "sReadyText": "百鬼夜行就绪",
+        "iTime": 25,
+        "lKeyCode": [
+            [
+                "right ctrl",
+                "up"
+            ]
+        ],
+        "bOpen": true,
+        "bReset": true,
+        "iFontSize": 18,
+        "cdColor": "#ffff0c",
+        "readyColor": "#00ff11",
+        "bgColor": "#b03a44",
+        "tPos": [
+            1804,
+            1180
+        ],
+        "bCycle": false,
+        "sPic": "baigui.png",
+        "iConSize": 70,
+        "iBoardSize": 4,
+        "boardColor": "#000000",
+        "bTriggerInCd": true,
+        "bVoice": true,
+        "bIconTimer": true,
+        "groupId": -1,
+        "force_match": false,
+        "sMaskPic": ""
+    },
+    "4": {
+        "sName": "幻象之剑",
+        "sCDText": "冷却中",
+        "sPic": "hxzj.png",
+        "sReadyText": "已就绪",
+        "iTime": 35,
+        "lKeyCode": [
+            [
+                "r"
+            ]
+        ],
+        "bOpen": false,
+        "bReset": false,
+        "bTriggerInCd": false,
+        "bCycle": false,
+        "bVoice": true,
+        "bIconTimer": true,
+        "iFontSize": 18,
+        "iBoardSize": 2,
+        "iConSize": 70,
+        "cdColor": "#FF0000",
+        "readyColor": "#00FFFF",
+        "bgColor": "#00000000",
+        "boardColor": "#000000",
+        "groupId": 0,
+        "force_match": false,
+        "tPos": [
+            2052,
+            1198
+        ],
+        "sMaskPic": ""
+    }
+}

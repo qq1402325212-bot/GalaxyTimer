@@ -18,30 +18,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Detect Python entry script (auto)
-        shell: bash
-        run: |
-          set -e
-          if [ -d "pyscript" ]; then
-            ENTRY_FILE=$(grep -R --line-number "__name__ *== *['\"]__main__['\"]" pyscript || true)
-            if [ -n "$ENTRY_FILE" ]; then
-              FILEPATH=$(echo "$ENTRY_FILE" | head -n1 | cut -d: -f1)
-              echo "Detected entry: $FILEPATH"
-              echo "ENTRY=$FILEPATH" >> $GITHUB_ENV
-            else
-              if [ -f "pyscript/galaxytimer.py" ]; then
-                echo "No explicit __main__ found; defaulting to pyscript/galaxytimer.py"
-                echo "ENTRY=pyscript/galaxytimer.py" >> $GITHUB_ENV
-              else
-                echo "ERROR: could not detect entry script. Please set ENTRY env or add a script with __main__ in pyscript/"
-                exit 1
-              fi
-            fi
-          else
-            echo "No pyscript/ directory found; please set ENTRY manually as an env var or adjust workflow."
-            exit 1
-          fi
-
       - name: Setup Python
         uses: actions/setup-python@v4
         with:
@@ -52,15 +28,6 @@ jobs:
         run: |
           python -m pip install --upgrade pip setuptools wheel
           python -m pip install pyinstaller pyarmor pyttsx3
-
-      - name: Install requirements if present
-        shell: pwsh
-        run: |
-          if (Test-Path requirements.txt) {
-            python -m pip install -r requirements.txt
-          } else {
-            Write-Host "no requirements.txt"
-          }
 
       - name: Prepare build_src (copy sources + resources)
         shell: pwsh
@@ -88,14 +55,14 @@ jobs:
           Write-Host "Generated SALT: $salt"
           Add-Content -Path $env:GITHUB_ENV -Value "BUILD_SALT=$salt"
 
-          $entryPath = Join-Path -Path (Get-Location) -ChildPath $env:ENTRY
-          $copyEntry = $entryPath -replace [regex]::Escape("pyscript"), "build_src\pyscript"
-          if (Test-Path $copyEntry) {
-            (Get-Content $copyEntry -Raw) -replace "__BUILD_SALT__", $salt | Set-Content $copyEntry -Encoding UTF8
-            Write-Host "Injected SALT into $copyEntry"
-          } else {
-            Write-Host "Warning: copied entry not found at $copyEntry. Skipping injection."
-          }
+          # Inject salt into file
+          $entryPath = Join-Path -Path (Get-Location) -ChildPath "build_src\pyscript\galaxytimer.py"
+          (Get-Content $entryPath -Raw) -replace "__BUILD_SALT__", $salt | Set-Content $entryPath -Encoding UTF8
+
+      - name: Set encoding to UTF-8
+        run: |
+          # Check encoding or convert encoding if needed
+          chcp 65001  # Set console to UTF-8 encoding
 
       - name: Obfuscate with PyArmor (use gen command)
         shell: pwsh
@@ -106,8 +73,14 @@ jobs:
             exit 1
           }
 
+          # Start obfuscation with detailed output
           Write-Host "Starting PyArmor obfuscation on $copiedEntry"
           pyarmor gen --pack onefile $copiedEntry
+
+          if (-not (Test-Path -Path "obf\galaxytimer.py")) {
+            Write-Error "Obfuscation failed or output file not found under ./obf."
+            exit 1
+          }
 
       - name: Locate obfuscated entry file
         id: findobf

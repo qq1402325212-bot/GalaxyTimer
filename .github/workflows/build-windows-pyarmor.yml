@@ -1,4 +1,4 @@
-name: Build GalaxyTimer (repack, PyArmor obfuscate + PyInstaller)
+name: Build GalaxyTimer (repack, PyArmor obfuscate + PyInstaller without registration)
 
 on:
   push:
@@ -97,20 +97,6 @@ jobs:
             Write-Host "Warning: copied entry not found at $copyEntry. Skipping injection."
           }
 
-      - name: Restore PyArmor registration (optional)
-        shell: pwsh
-        env:
-          PYARMOR_REG_B64: ${{ secrets.PYARMOR_REG_B64 }}
-        run: |
-          if (-not $env:PYARMOR_REG_B64) {
-            Write-Host "No PYARMOR_REG_B64 secret defined — skipping PyArmor reg restore."
-          } else {
-            Write-Host "Restoring PyArmor registration from secret..."
-            $bytes = [System.Convert]::FromBase64String($env:PYARMOR_REG_B64)
-            [System.IO.File]::WriteAllBytes("pyarmor-reg.zip", $bytes)
-            pyarmor reg pyarmor-reg.zip
-          }
-
       - name: Obfuscate with PyArmor (recursive)
         shell: pwsh
         run: |
@@ -124,7 +110,7 @@ jobs:
           pyarmor obfuscate --recursive --output obf $copiedEntry
 
           # 检查 PyArmor 执行日志是否成功
-          if (Test-Path -Path "obf\pyscript\galaxytimer.py") {
+          if (Test-Path -Path "obf\galaxytimer.py") {
             Write-Host "Obfuscation completed successfully."
           } else {
             Write-Error "Obfuscation failed or output file not found under ./obf."
@@ -135,7 +121,7 @@ jobs:
         id: findobf
         shell: pwsh
         run: |
-          $f = Get-ChildItem -Path .\obf\pyscript -Filter 'galaxytimer.py' -Recurse -File | Select-Object -First 1
+          $f = Get-ChildItem -Path .\obf -Filter 'galaxytimer.py' -Recurse -File | Select-Object -First 1
           if (-not $f) { Write-Error "Obfuscated entry file not found under ./obf"; exit 1 }
           Write-Host "Found obf entry: $($f.FullName)"
           Write-Output "::set-output name=obf_path::$($f.FullName)"

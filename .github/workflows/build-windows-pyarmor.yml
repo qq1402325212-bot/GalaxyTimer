@@ -1,21 +1,21 @@
-name: Build GalaxyTimer EXE (Windows) with PyArmor
+name: Build GalaxyTimer (repack, PyArmor obfuscate + PyInstaller)
 
 on:
   push:
     branches: [ main ]
   workflow_dispatch:
 
-env:
-  ENTRY: pyscript/galaxytimer.py
-  PYTHON_VERSION: '3.10'
-
 jobs:
-  build-windows:
+  build-windows-repack:
     runs-on: windows-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
+    env:
+      # 明确入口（pack.bat 使用的就是 pyscript/galaxytimer.py）
+      ENTRY: pyscript/galaxytimer.py
+      PYTHON_VERSION: '3.10'
 
     steps:
-      - name: Checkout repository
+      - name: Checkout repo
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -25,67 +25,152 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Upgrade pip & Install build tools
+      - name: Upgrade pip & install build tools
+        shell: pwsh
         run: |
           python -m pip install --upgrade pip setuptools wheel
-          pip install pyinstaller pyarmor
+          python -m pip install pyinstaller pyarmor pyttsx3
 
-      - name: Install app dependencies (if requirements.txt exists)
-        shell: bash
+      - name: Install requirements if present
+        shell: pwsh
         run: |
-          if [ -f requirements.txt ]; then
-            pip install -r requirements.txt
-          else
-            echo "no requirements.txt"
-          fi
+          if (Test-Path requirements.txt) {
+            python -m pip install -r requirements.txt
+          } else {
+            Write-Host "no requirements.txt"
+          }
 
-      - name: Restore PyArmor registration (optional)
-        if: ${{ secrets.PYARMOR_REG_B64 }}
+      - name: Prepare build_src (copy sources + resources)
+        shell: pwsh
+        run: |
+          # remove previous artifacts just in case
+          Remove-Item -Force -ErrorAction SilentlyContinue .\GalaxyTimer.exe
+          Remove-Item -Recurse -Force -ErrorAction SilentlyContinue .\build_src, .\obf, .\dist, .\build
+
+          # create temp build source dir and copy required files (pyscript + resources if exist)
+          New-Item -ItemType Directory -Force -Path build_src | Out-Null
+          Copy-Item -Recurse -Force -Path .\pyscript -Destination .\build_src\pyscript
+
+          if (Test-Path .\resources) {
+            Copy-Item -Recurse -Force -Path .\resources -Destination .\build_src\resources
+          } elseif (Test-Path .\Resources) {
+            Copy-Item -Recurse -Force -Path .\Resources -Destination .\build_src\Resources
+          }
+
+          # copy other files if needed (e.g., config) - adjust here if more files are critical
+
+      - name: Inject build salt into copied script (makes each build unique)
+        shell: pwsh
+        run: |
+          # generate 12 random bytes and base64 them, sanitize and truncate to 16 chars
+          $bytes = New-Object byte[] 12
+          $rng = New-Object System.Security.Cryptography.RNGCryptoServiceProvider
+          $rng.GetBytes($bytes)
+          $salt = [System.Convert]::ToBase64String($bytes) -replace '/','_' -replace '\+','-' -replace '=',''
+          if ($salt.Length -gt 16) { $salt = $salt.Substring(0,16) }
+          Write-Host "Generated SALT: $salt"
+          Add-Content -Path $env:GITHUB_ENV -Value "BUILD_SALT=$salt"
+
+          $entryPath = Join-Path -Path (Get-Location) -ChildPath $env:ENTRY
+          # our copy is in build_src\pyscript\..., so map path
+          $copyEntry = $entryPath -replace [regex]::Escape("pyscript"), "build_src\pyscript"
+          if (Test-Path $copyEntry) {
+            (Get-Content $copyEntry -Raw) -replace "__BUILD_SALT__", $salt | Set-Content $copyEntry -Encoding UTF8
+            Write-Host "Injected SALT into $copyEntry"
+          } else {
+            Write-Host "Warning: copied entry not found at $copyEntry. Skipping injection."
+          }
+
+      - name: Restore PyArmor registration (optional; read secret into env & check inside)
         shell: pwsh
         env:
           PYARMOR_REG_B64: ${{ secrets.PYARMOR_REG_B64 }}
         run: |
-          Write-Host "Restoring PyArmor registration file from secret..."
-          $bytes = [System.Convert]::FromBase64String($env:PYARMOR_REG_B64)
-          [System.IO.File]::WriteAllBytes("pyarmor-reg.zip", $bytes)
-          pyarmor reg pyarmor-reg.zip
+          if (-not $env:PYARMOR_REG_B64) {
+            Write-Host "No PYARMOR_REG_B64 secret defined — skipping PyArmor reg restore."
+          } else {
+            Write-Host "Restoring PyArmor registration from secret..."
+            $bytes = [System.Convert]::FromBase64String($env:PYARMOR_REG_B64)
+            [System.IO.File]::WriteAllBytes("pyarmor-reg.zip", $bytes)
+            # register pyarmor (adjust if your registration packaging differs)
+            pyarmor reg pyarmor-reg.zip
+            Write-Host "PyArmor registration attempted."
+          }
 
-      - name: Inject build salt
-        shell: bash
-        env:
-          ENTRY: ${{ env.ENTRY }}
+      - name: Obfuscate with PyArmor (recursive) -> produces ./obf/...
+        shell: pwsh
         run: |
-          SALT=$(head -c 12 /dev/urandom | base64 | tr '/+=' '_-' | cut -c1-16)
-          echo "SALT=$SALT" >> $GITHUB_ENV
-          echo "Build salt is $SALT"
-          if grep -q "__BUILD_SALT__" "$ENTRY" 2>/dev/null; then
-            sed -i "s/__BUILD_SALT__/${SALT}/g" "$ENTRY"
-            echo "Replaced __BUILD_SALT__ in $ENTRY"
-          else
-            echo "No __BUILD_SALT__ placeholder found in $ENTRY"
-          fi
+          # obfuscate the copied source to ./obf using pyarmor
+          $copiedEntry = (Join-Path (Get-Location) "build_src\pyscript\galaxytimer.py")
+          if (-not (Test-Path $copiedEntry)) {
+            Write-Error "Copied entry $copiedEntry not found. Aborting."
+            exit 1
+          }
+          pyarmor obfuscate --recursive --output obf $copiedEntry
+          Write-Host "PyArmor obfuscation complete. Listing obf tree:"
+          Get-ChildItem -Recurse obf | Select-Object FullName -First 50 | ForEach-Object { Write-Host $_.FullName }
 
-      - name: PyArmor gen --pack onefile (obfuscate + pack)
-        shell: bash
-        env:
-          ENTRY: ${{ env.ENTRY }}
+      - name: Locate obfuscated entry file
+        id: findobf
+        shell: pwsh
         run: |
-          echo "Running: pyarmor gen --pack onefile \"$ENTRY\""
-          pyarmor gen --pack onefile "$ENTRY"
-          echo "dist listing:"
-          ls -la dist || true
+          $f = Get-ChildItem -Path .\obf -Filter 'galaxytimer.py' -Recurse -File | Select-Object -First 1
+          if (-not $f) { Write-Error "Obfuscated entry file not found under ./obf"; exit 1 }
+          Write-Host "Found obf entry: $($f.FullName)"
+          # set as output for later step
+          Write-Output "::set-output name=obf_path::$($f.FullName)"
 
-      - name: Upload EXE artifact
+      - name: PyInstaller (pack obfuscated script -> onefile)
+        shell: pwsh
+        env:
+          OBF_PATH: ${{ steps.findobf.outputs.obf_path }}
+        run: |
+          $entry = $env:OBF_PATH
+          Write-Host "Using obfuscated entry: $entry"
+
+          # find icon (prefer build_src resources then repo Resources)
+          $iconPaths = @(".\build_src\resources\icon\icon.ico", ".\build_src\Resources\icon\icon.ico", ".\resources\icon\icon.ico", ".\Resources\icon\icon.ico")
+          $icon = $null
+          foreach ($p in $iconPaths) {
+            if (Test-Path $p) { $icon = $p; break }
+          }
+          if ($icon) { Write-Host "Using icon: $icon" } else { Write-Host "Icon not found in expected paths; continuing without -i" }
+
+          # Run pyinstaller like your pack.bat: -w -F --hidden-import=pyttsx3 <entry> -i <icon>
+          $args = @("--noconfirm","--clean","-F","--hidden-import=pyttsx3","--distpath",".\dist","--workpath",".\build")
+          if ($icon) { $args += @("-i", $icon) }
+          $args += $entry
+          Write-Host "pyinstaller $($args -join ' ')"
+          pyinstaller @args
+
+      - name: Rename and publish exe (move dist\galaxytimer.exe -> GalaxyTimer.exe)
+        shell: pwsh
+        run: |
+          # pyinstaller will create dist\<name>.exe where name is script basename (galaxytimer)
+          $exePath = Join-Path -Path (Get-Location) -ChildPath "dist\galaxytimer.exe"
+          if (Test-Path $exePath) {
+            Move-Item -Force $exePath .\GalaxyTimer.exe
+            Write-Host "Moved to GalaxyTimer.exe"
+          } else {
+            # try other guess
+            $candidate = Get-ChildItem -Path .\dist -Filter *.exe -File | Select-Object -First 1
+            if ($candidate) {
+              Move-Item -Force $candidate.FullName .\GalaxyTimer.exe
+              Write-Host "Moved candidate $($candidate.Name) to GalaxyTimer.exe"
+            } else {
+              Write-Error "No exe found in dist. PyInstaller probably failed."
+              exit 1
+            }
+          }
+
+      - name: Clean intermediate build artifacts (optional, mirror pack.bat)
+        shell: pwsh
+        run: |
+          Remove-Item -Recurse -Force -ErrorAction SilentlyContinue .\dist, .\build, .\obf, .\build_src
+          Get-ChildItem -Path . -Filter "*.spec" -File | ForEach-Object { Remove-Item -Force $_.FullName }
+
+      - name: Upload GalaxyTimer.exe artifact
         uses: actions/upload-artifact@v4
         with:
           name: GalaxyTimer-exe
-          path: dist/**/*.exe
-
-      - name: (Optional) Create GitHub Release and attach EXE
-        if: startsWith(github.ref, 'refs/heads/main')
-        uses: ncipollo/release-action@v1
-        with:
-          tag: v${{ github.run_number }}
-          name: GalaxyTimer-build-${{ github.run_number }}
-          artifacts: GalaxyTimer-exe
-          draft: true
+          path: GalaxyTimer.exe

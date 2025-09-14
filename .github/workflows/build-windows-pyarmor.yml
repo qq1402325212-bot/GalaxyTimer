@@ -44,6 +44,19 @@ jobs:
             Copy-Item -Recurse -Force -Path .\Resources -Destination .\build_src\Resources
           }
 
+      - name: Check file encoding (for debugging)
+        shell: pwsh
+        run: |
+          $entryPath = Join-Path -Path (Get-Location) -ChildPath "build_src\pyscript\galaxytimer.py"
+          if (Test-Path $entryPath) {
+            $content = Get-Content -Path $entryPath -Raw
+            Write-Host "File content (first 100 characters):"
+            Write-Host ($content.Substring(0, [math]::Min(100, $content.Length)))
+          } else {
+            Write-Error "Entry file not found: $entryPath"
+            exit 1
+          }
+
       - name: Inject build salt
         shell: pwsh
         run: |
@@ -55,14 +68,8 @@ jobs:
           Write-Host "Generated SALT: $salt"
           Add-Content -Path $env:GITHUB_ENV -Value "BUILD_SALT=$salt"
 
-          # Inject salt into file
           $entryPath = Join-Path -Path (Get-Location) -ChildPath "build_src\pyscript\galaxytimer.py"
           (Get-Content $entryPath -Raw) -replace "__BUILD_SALT__", $salt | Set-Content $entryPath -Encoding UTF8
-
-      - name: Set encoding to UTF-8
-        run: |
-          # Check encoding or convert encoding if needed
-          chcp 65001  # Set console to UTF-8 encoding
 
       - name: Obfuscate with PyArmor (use gen command)
         shell: pwsh
@@ -73,7 +80,6 @@ jobs:
             exit 1
           }
 
-          # Start obfuscation with detailed output
           Write-Host "Starting PyArmor obfuscation on $copiedEntry"
           pyarmor gen --pack onefile $copiedEntry
 

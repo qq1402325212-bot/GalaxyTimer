@@ -11,7 +11,7 @@ jobs:
     timeout-minutes: 90
     env:
       PYTHON_VERSION: '3.10'
-      ENTRY: pyscript/galaxytimer.py      # 确保这个路径是正确的
+      ENTRY: pyscript/galaxytimer.py  # 确保这个路径是准确的
 
     steps:
       - name: Checkout repo
@@ -39,10 +39,11 @@ jobs:
             Write-Host "no requirements.txt"
           }
 
-      - name: Check if entry file exists and display path
+      - name: Check if entry file exists
         shell: pwsh
         run: |
           $entryPath = Join-Path -Path (Get-Location) -ChildPath $env:ENTRY
+          Write-Host "Checking for entry file at: $entryPath"
           if (Test-Path $entryPath) {
             Write-Host "Entry file found: $entryPath"
           } else {
@@ -54,12 +55,13 @@ jobs:
         shell: pwsh
         run: |
           $entryPath = Join-Path -Path (Get-Location) -ChildPath $env:ENTRY
-          # 这里直接读取文件内容 
-          if (Get-Content $entryPath -Raw | Out-Null) {
-              Write-Host "Entry file encoding check passed."
-          } else {
-              Write-Error "Unable to read entry file. Please check encoding."
-              exit 1
+          try {
+            $content = Get-Content $entryPath -Raw
+            Write-Host "Entry file encoding check passed. First 100 characters:"
+            Write-Host $content.Substring(0, [math]::Min(100, $content.Length))
+          } catch {
+            Write-Error "Unable to read entry file. Check if it is encoded in the correct format (UTF-8)."
+            exit 1
           }
 
       - name: Build with PyInstaller
@@ -94,4 +96,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: GalaxyTimer-exe
-          path: TGiamlearxy.exe
+          path: GalaxyTimer.exe

@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 env:
-  ENTRY: pyscript/main.py
+  ENTRY: pyscript/galaxytimer.py
   PYTHON_VERSION: '3.10'
 
 jobs:

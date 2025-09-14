@@ -1,4 +1,4 @@
-复刻自GalaxyTimer
+Fork自GalaxyTimer
 使用相关的问题请跳转https://github.com/KnightEmperorElsword/GalaxyTimer
 
 此项目本质是一个小白不想下载编程环境意图使用Github在线工作流直接完成该程序的加盐混淆加壳打包，使各位只需复制该项目更改自己的盐值即可获得个人版的GalaxyTimer以绕过检测

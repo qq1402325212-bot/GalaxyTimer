@@ -40,7 +40,7 @@ jobs:
           fi
 
       - name: Restore PyArmor registration (optional)
-        if: ${{ secrets.PYARMOR_REG_B64 != '' }}
+        if: ${{ secrets.PYARMOR_REG_B64 }}
         shell: pwsh
         env:
           PYARMOR_REG_B64: ${{ secrets.PYARMOR_REG_B64 }}
@@ -55,12 +55,9 @@ jobs:
         env:
           ENTRY: ${{ env.ENTRY }}
         run: |
-          # 生成随机 salt（取 16 字符）
           SALT=$(head -c 12 /dev/urandom | base64 | tr '/+=' '_-' | cut -c1-16)
           echo "SALT=$SALT" >> $GITHUB_ENV
           echo "Build salt is $SALT"
-
-          # 如果在入口脚本中存在占位符 __BUILD_SALT__，就替换它
           if grep -q "__BUILD_SALT__" "$ENTRY" 2>/dev/null; then
             sed -i "s/__BUILD_SALT__/${SALT}/g" "$ENTRY"
             echo "Replaced __BUILD_SALT__ in $ENTRY"

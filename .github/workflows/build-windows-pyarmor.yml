@@ -50,7 +50,7 @@ jobs:
           [System.IO.File]::WriteAllBytes("pyarmor-reg.zip", $bytes)
           pyarmor reg pyarmor-reg.zip
 
-      - name: Inject build salt (optional: makes each build slightly different)
+      - name: Inject build salt
         shell: bash
         env:
           ENTRY: ${{ env.ENTRY }}

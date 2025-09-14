@@ -11,7 +11,7 @@ jobs:
     timeout-minutes: 90
     env:
       PYTHON_VERSION: '3.10'
-      ENTRY: pyscript/galaxytimer.py
+      ENTRY: pyscript/galaxytimer.py      # 确保这个路径是正确的
 
     steps:
       - name: Checkout repo
@@ -39,26 +39,22 @@ jobs:
             Write-Host "no requirements.txt"
           }
 
-      - name: Inject build salt (optional)
-        shell: pwsh
-        run: |
-          # Generate random salt
-          $bytes = New-Object byte[] 12
-          $rng = New-Object System.Security.Cryptography.RNGCryptoServiceProvider
-          $rng.GetBytes($bytes)
-          $salt = [System.Convert]::ToBase64String($bytes) -replace '/','_' -replace '\+','-' -replace '=',''
-          if ($salt.Length -gt 16) { $salt = $salt.Substring(0,16) }
-          Write-Host "Generated SALT: $salt"
-          Add-Content -Path $env:GITHUB_ENV -Value "BUILD_SALT=$salt"
-
-          # Inject into file
-          $entryPath = Join-Path -Path (Get-Location) -ChildPath $env:ENTRY
-          (Get-Content $entryPath -Raw) -replace "__BUILD_SALT__", $salt | Set-Content $entryPath -Encoding UTF8
-
-      - name: Check Encoding of Entry File
+      - name: Check if entry file exists and display path
         shell: pwsh
         run: |
           $entryPath = Join-Path -Path (Get-Location) -ChildPath $env:ENTRY
+          if (Test-Path $entryPath) {
+            Write-Host "Entry file found: $entryPath"
+          } else {
+            Write-Error "Error: Entry file not found at $entryPath. Please check the path."
+            exit 1
+          }
+
+      - name: Read and Check Encoding of Entry File
+        shell: pwsh
+        run: |
+          $entryPath = Join-Path -Path (Get-Location) -ChildPath $env:ENTRY
+          # 这里直接读取文件内容 
           if (Get-Content $entryPath -Raw | Out-Null) {
               Write-Host "Entry file encoding check passed."
           } else {
@@ -98,4 +94,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: GalaxyTimer-exe
-          path: GalaxyTimer.exe
+          path: TGiamlearxy.exe

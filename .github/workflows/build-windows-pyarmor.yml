@@ -19,7 +19,6 @@ jobs:
           fetch-depth: 0
 
       - name: Detect Python entry script (auto)
-        # 在 pyscript/ 里查找包含 __main__ 的脚本以自动设置 ENTRY
         shell: bash
         run: |
           set -e

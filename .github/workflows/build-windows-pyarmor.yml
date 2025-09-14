@@ -6,7 +6,6 @@ on:
   workflow_dispatch:
 
 env:
-  # 如果入口不是 pyscript/main.py，请改为实际入口文件（相对于仓库根）
   ENTRY: pyscript/galaxytimer.py
   PYTHON_VERSION: '3.10'
 
@@ -16,75 +15,80 @@ jobs:
     timeout-minutes: 60
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-    - name: Setup Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: ${{ env.PYTHON_VERSION }}
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
 
-    - name: Upgrade pip & Install build tools
-      run: |
-        python -m pip install --upgrade pip setuptools wheel
-        pip install pyinstaller pyarmor
+      - name: Upgrade pip & Install build tools
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          pip install pyinstaller pyarmor
 
-    - name: Install app dependencies (if requirements.txt exists)
-      shell: bash
-      run: |
-        if [ -f requirements.txt ]; then
-          pip install -r requirements.txt
-        else
-          echo "no requirements.txt"
-        fi
+      - name: Install app dependencies (if requirements.txt exists)
+        shell: bash
+        run: |
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          else
+            echo "no requirements.txt"
+          fi
 
-    - name: Restore PyArmor registration (optional)
-      if: ${{ secrets.PYARMOR_REG_B64 != '' }}
-      shell: pwsh
-      env:
-        PYARMOR_REG_B64: ${{ secrets.PYARMOR_REG_B64 }}
-      run: |
-        Write-Host "Restoring PyArmor registration file from secret..."
-        $bytes = [System.Convert]::FromBase64String($env:PYARMOR_REG_B64)
-        [System.IO.File]::WriteAllBytes("pyarmor-reg.zip", $bytes)
-        # Register pyarmor (adjust command if your registration material is different)
-        pyarmor reg pyarmor-reg.zip
+      - name: Restore PyArmor registration (optional)
+        if: ${{ secrets.PYARMOR_REG_B64 != '' }}
+        shell: pwsh
+        env:
+          PYARMOR_REG_B64: ${{ secrets.PYARMOR_REG_B64 }}
+        run: |
+          Write-Host "Restoring PyArmor registration file from secret..."
+          $bytes = [System.Convert]::FromBase64String($env:PYARMOR_REG_B64)
+          [System.IO.File]::WriteAllBytes("pyarmor-reg.zip", $bytes)
+          pyarmor reg pyarmor-reg.zip
 
-    - name: Inject build salt (optional: makes each build slightly different)
-      shell: bash
-      run: |
-        SALT=$(head -c 12 /dev/urandom | base64 | tr '/+=' '_-' | cut -c1-16)
-        echo "SALT=${SALT}" >> $GITHUB_ENV
-        echo "Build salt is $SALT"
-        # replace placeholder __BUILD_SALT__ in entry if present
-        if grep -q "__BUILD_SALT__" ${{ env.ENTRY }} 2>/dev/null; then
-          sed -i "s/__BUILD_SALT__/${SALT}/g" ${{ env.ENTRY }}
-        fi
+      - name: Inject build salt (optional: makes each build slightly different)
+        shell: bash
+        env:
+          ENTRY: ${{ env.ENTRY }}
+        run: |
+          # 生成随机 salt（取 16 字符）
+          SALT=$(head -c 12 /dev/urandom | base64 | tr '/+=' '_-' | cut -c1-16)
+          echo "SALT=$SALT" >> $GITHUB_ENV
+          echo "Build salt is $SALT"
 
-    - name: PyArmor gen --pack onefile (obfuscate + pack)
-      shell: bash
-      env:
-        ENTRY: ${{ env.ENTRY }}
-      run: |
-        echo "Running pyarmor gen --pack onefile $ENTRY"
-        # --clean mode: F = onefile + clean, see pyarmor docs (mode flags optional)
-        pyarmor gen --pack onefile "$ENTRY"
-        echo "ls dist:"
-        ls -la dist || true
+          # 如果在入口脚本中存在占位符 __BUILD_SALT__，就替换它
+          if grep -q "__BUILD_SALT__" "$ENTRY" 2>/dev/null; then
+            sed -i "s/__BUILD_SALT__/${SALT}/g" "$ENTRY"
+            echo "Replaced __BUILD_SALT__ in $ENTRY"
+          else
+            echo "No __BUILD_SALT__ placeholder found in $ENTRY"
+          fi
 
-    - name: Upload EXE artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: GalaxyTimer-exe
-        path: dist/**/*.exe
+      - name: PyArmor gen --pack onefile (obfuscate + pack)
+        shell: bash
+        env:
+          ENTRY: ${{ env.ENTRY }}
+        run: |
+          echo "Running: pyarmor gen --pack onefile \"$ENTRY\""
+          pyarmor gen --pack onefile "$ENTRY"
+          echo "dist listing:"
+          ls -la dist || true
 
-    - name: (Optional) Create GitHub Release and attach EXE
-      if: startsWith(github.ref, 'refs/heads/main')
-      uses: ncipollo/release-action@v1
-      with:
-        tag: v${{ github.run_number }}
-        name: GalaxyTimer-build-${{ github.run_number }}
-        artifacts: GalaxyTimer-exe
-        draft: true
+      - name: Upload EXE artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: GalaxyTimer-exe
+          path: dist/**/*.exe
+
+      - name: (Optional) Create GitHub Release and attach EXE
+        if: startsWith(github.ref, 'refs/heads/main')
+        uses: ncipollo/release-action@v1
+        with:
+          tag: v${{ github.run_number }}
+          name: GalaxyTimer-build-${{ github.run_number }}
+          artifacts: GalaxyTimer-exe
+          draft: true

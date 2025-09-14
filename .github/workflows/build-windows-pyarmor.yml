@@ -1,4 +1,4 @@
-name: Build GalaxyTimer (repack, PyArmor obfuscate + PyInstaller without registration)
+name: Build GalaxyTimer (PyArmor obfuscate + PyInstaller)
 
 on:
   push:
@@ -97,7 +97,7 @@ jobs:
             Write-Host "Warning: copied entry not found at $copyEntry. Skipping injection."
           }
 
-      - name: Obfuscate with PyArmor (recursive)
+      - name: Obfuscate with PyArmor (use gen command)
         shell: pwsh
         run: |
           $copiedEntry = (Join-Path (Get-Location) "build_src\pyscript\galaxytimer.py")
@@ -107,15 +107,7 @@ jobs:
           }
 
           Write-Host "Starting PyArmor obfuscation on $copiedEntry"
-          pyarmor obfuscate --recursive --output obf $copiedEntry
-
-          # 检查 PyArmor 执行日志是否成功
-          if (Test-Path -Path "obf\galaxytimer.py") {
-            Write-Host "Obfuscation completed successfully."
-          } else {
-            Write-Error "Obfuscation failed or output file not found under ./obf."
-            exit 1
-          }
+          pyarmor gen --pack onefile $copiedEntry
 
       - name: Locate obfuscated entry file
         id: findobf
@@ -167,27 +159,3 @@ jobs:
         with:
           name: GalaxyTimer-exe
           path: GalaxyTimer.exe
-      - name: Obfuscate with PyArmor (detailed logs)
-        shell: pwsh
-        run: |
-          $copiedEntry = Join-Path (Get-Location) "build_src\pyscript\galaxytimer.py"
-          if (-not (Test-Path $copiedEntry)) {
-            Write-Error "Copied entry $copiedEntry not found. Aborting."
-            exit 1
-          }
-
-          Write-Host "Starting PyArmor obfuscation on $copiedEntry"
-          # 添加详细日志参数 --debug 如果支持
-          pyarmor obfuscate --recursive --output obf $copiedEntry
-
-          if (Test-Path -Path "obf\pyscript\galaxytimer.py") {
-            Write-Host "Obfuscation completed successfully."
-          } else {
-            Write-Error "Obfuscation failed or output file not found under ./obf."
-            Get-Content -Path $copiedEntry -TotalCount 20 # 输出前20行以调试
-            exit 1
-          }
-        env:
-          PYARMOR_DEBUG: 1  # 假设 PyArmor 支持的调试环境变量，仅示例
-env:
-  ACTIONS_STEP_DEBUG: true

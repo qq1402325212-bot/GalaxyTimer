@@ -1,4 +1,4 @@
-name: Build GalaxyTimer with PyInstaller and PyArmor
+name: Build GalaxyTimer (PyArmor obfuscate + PyInstaller)
 
 on:
   push:
@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-windows:
+  build-windows-repack:
     runs-on: windows-latest
     timeout-minutes: 90
     env:
@@ -30,15 +30,6 @@ jobs:
           python -m pip install --upgrade pip setuptools wheel
           python -m pip install pyinstaller pyarmor pyttsx3 PySide6 keyboard  # 安装必要模块
 
-      - name: Install requirements if present
-        shell: pwsh
-        run: |
-          if (Test-Path requirements.txt) {
-            python -m pip install -r requirements.txt  # 安装其他依赖
-          } else {
-            Write-Host "No requirements.txt found."
-          }
-
       - name: Prepare build_src (copy sources + resources)
         shell: pwsh
         run: |
@@ -54,19 +45,23 @@ jobs:
             Copy-Item -Recurse -Force -Path .\Resources -Destination .\build_src\Resources
           }
 
-      - name: Inject build salt (optional)
+      - name: Check and convert file encoding (for debugging)
         shell: pwsh
         run: |
-          $bytes = New-Object byte[] 12
-          $rng = New-Object System.Security.Cryptography.RNGCryptoServiceProvider
-          $rng.GetBytes($bytes)
-          $salt = [System.Convert]::ToBase64String($bytes) -replace '/','_' -replace '\+','-' -replace '=',''
-          if ($salt.Length -gt 16) { $salt = $salt.Substring(0,16) }
-          Write-Host "Generated SALT: $salt"
-          Add-Content -Path $env:GITHUB_ENV -Value "BUILD_SALT=$salt"
-
-          $entryPath = Join-Path -Path (Get-Location) -ChildPath $env:ENTRY
-          (Get-Content $entryPath -Raw) -replace "__BUILD_SALT__", $salt | Set-Content $entryPath -Encoding UTF8
+          $files = @("build_src\pyscript\galaxytimer.py", "build_src\pyscript\logic\*.py", "build_src\pyscript\widgets\*.py", "build_src\pyscript\core\*.py")
+          foreach ($file in $files) {
+            Get-ChildItem -Path $file | ForEach-Object {
+              $content = Get-Content -Path $_.FullName -Raw -Encoding Byte
+              if (-not [System.Text.Encoding]::UTF8.GetString($content).Contains("�")) {  # Check for invalid chars
+                Write-Host "File $_.FullName is UTF-8 encoded."
+              } else {
+                Write-Host "File $_.FullName contains invalid characters or is not UTF-8 encoded."
+                # Optional: Convert to UTF-8
+                [System.IO.File]::WriteAllLines($_.FullName, [System.IO.File]::ReadAllLines($_.FullName, [System.Text.Encoding]::Default), [System.Text.Encoding]::UTF8)
+                Write-Host "Converted $_.FullName to UTF-8."
+              }
+            }
+          }
 
       - name: Obfuscate with PyArmor (use gen command)
         shell: pwsh
@@ -97,21 +92,20 @@ jobs:
           $entry = $env:OBF_PATH
           Write-Host "Using obfuscated entry: $entry"
 
-          $iconPaths = @(".\build_src\resources\icon\icon.ico", ".\build_src\Resources\icon\icon.ico", ".\resources\icon\icon.ico", ".\Resources\icon\icon.ico")
+          $iconPaths = @(".\resources\icon\icon.ico", ".\build_src\resources\icon\icon.ico")  # 调整路径
           $icon = $null
           foreach ($p in $iconPaths) {
             if (Test-Path $p) { $icon = $p; break }
           }
           if ($icon) { Write-Host "Using icon: $icon" } else { Write-Host "Icon not found in expected paths; continuing without -i" }
 
-          # Packing the executable with the necessary files included
-          $args = @("--noconfirm","--clean","-F","--hidden-import=pyttsx3","--hidden-import=PySide6","--hidden-import=keyboard","--add-data","build_src\pyscript\logic;logic","--add-data","build_src\pyscript\core;core","--add-data","build_src\pyscript\widgets;widgets",)
+          $args = @("--noconfirm","--clean","-F","--hidden-import=pyttsx3","--hidden-import=PySide6","--hidden-import=keyboard","--add-data","build_src\pyscript\logic;logic","--add-data","build_src\pyscript\core;core","--add-data","build_src\pyscript\widgets;widgets")
           if ($icon) { $args += @("-i", $icon) }
           $args += $entry
           Write-Host "pyinstaller $($args -join ' ')"
           pyinstaller @args
 
-      - name: Rename and publish exe (move dist\galaxytimer.exe -> GalaxyTimer.exe)
+      - name: Rename and publish exe
         shell: pwsh
         run: |
           $exePath = Join-Path -Path (Get-Location) -ChildPath "dist\galaxytimer.exe"

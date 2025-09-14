@@ -1,4 +1,4 @@
-name: Build GalaxyTimer (PyInstaller only)
+name: Build GalaxyTimer (PyInstaller)
 
 on:
   push:
@@ -28,27 +28,26 @@ jobs:
         shell: pwsh
         run: |
           python -m pip install --upgrade pip setuptools wheel
-          python -m pip install pyinstaller pyarmor pyttsx3
+          python -m pip install pyinstaller pyttsx3 PySide6  # 安装必要模块
 
       - name: Install requirements if present
         shell: pwsh
         run: |
           if (Test-Path requirements.txt) {
-            python -m pip install -r requirements.txt
+            python -m pip install -r requirements.txt  # 安装其他依赖
           } else {
-            Write-Host "no requirements.txt"
+            Write-Host "No requirements.txt found."
           }
 
       - name: Build with PyInstaller
         shell: pwsh
         run: |
-          # 包含资源文件和图标
-          $iconPath = ".\resources\icon\icon.ico"  # 确保路径的正确性
+          $iconPath = ".\resources\icon\icon.ico"  # 确认图标路径
           if (-not (Test-Path $iconPath)) {
             Write-Host "Icon not found, continuing without setting an icon."
-            pyinstaller --noconfirm --onefile --hidden-import=pyttsx3 $env:ENTRY
+            pyinstaller --noconfirm --onefile --hidden-import=pyttsx3 --hidden-import=PySide6 --add-data "build_src\pyscript\logic;logic" --add-data "build_src\pyscript\core;core" --add-data "build_src\pyscript\widgets;widgets" $env:ENTRY
           } else {
-            pyinstaller --noconfirm --onefile --hidden-import=pyttsx3 --icon=$iconPath $env:ENTRY
+            pyinstaller --noconfirm --onefile --hidden-import=pyttsx3 --hidden-import=PySide6 --icon=$iconPath --add-data "build_src\pyscript\logic;logic" --add-data "build_src\pyscript\core;core" --add-data "build_src\pyscript\widgets;widgets" $env:ENTRY
           }
 
       - name: Rename and publish exe (move dist\galaxytimer.exe -> GalaxyTimer.exe)

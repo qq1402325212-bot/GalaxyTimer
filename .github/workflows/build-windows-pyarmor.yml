@@ -10,8 +10,6 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 90
     env:
-      # 明确入口（pack.bat 使用的就是 pyscript/galaxytimer.py）
-      ENTRY: pyscript/galaxytimer.py
       PYTHON_VERSION: '3.10'
 
     steps:
@@ -19,6 +17,32 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Detect Python entry script (auto)
+        # 在 pyscript/ 里查找包含 __main__ 的脚本以自动设置 ENTRY
+        shell: bash
+        run: |
+          set -e
+          # 尝试在 pyscript 目录里找 __main__ 的文件
+          if [ -d "pyscript" ]; then
+            ENTRY_FILE=$(grep -R --line-number "__name__ *== *['\"]__main__['\"]" pyscript || true)
+            if [ -n "$ENTRY_FILE" ]; then
+              FILEPATH=$(echo "$ENTRY_FILE" | head -n1 | cut -d: -f1)
+              echo "Detected entry: $FILEPATH"
+              echo "ENTRY=$FILEPATH" >> $GITHUB_ENV
+            else
+              if [ -f "pyscript/galaxytimer.py" ]; then
+                echo "No explicit __main__ found; defaulting to pyscript/galaxytimer.py"
+                echo "ENTRY=pyscript/galaxytimer.py" >> $GITHUB_ENV
+              else
+                echo "ERROR: could not detect entry script. Please set ENTRY env or add a script with __main__ in pyscript/"
+                exit 1
+              fi
+            fi
+          else
+            echo "No pyscript/ directory found; please set ENTRY manually as an env var or adjust workflow."
+            exit 1
+          fi
 
       - name: Setup Python
         uses: actions/setup-python@v4
@@ -57,9 +81,7 @@ jobs:
             Copy-Item -Recurse -Force -Path .\Resources -Destination .\build_src\Resources
           }
 
-          # copy other files if needed (e.g., config) - adjust here if more files are critical
-
-      - name: Inject build salt into copied script (makes each build unique)
+      - name: Inject build salt
         shell: pwsh
         run: |
           # generate 12 random bytes and base64 them, sanitize and truncate to 16 chars
@@ -81,7 +103,7 @@ jobs:
             Write-Host "Warning: copied entry not found at $copyEntry. Skipping injection."
           }
 
-      - name: Restore PyArmor registration (optional; read secret into env & check inside)
+      - name: Restore PyArmor registration (optional)
         shell: pwsh
         env:
           PYARMOR_REG_B64: ${{ secrets.PYARMOR_REG_B64 }}
@@ -92,23 +114,19 @@ jobs:
             Write-Host "Restoring PyArmor registration from secret..."
             $bytes = [System.Convert]::FromBase64String($env:PYARMOR_REG_B64)
             [System.IO.File]::WriteAllBytes("pyarmor-reg.zip", $bytes)
-            # register pyarmor (adjust if your registration packaging differs)
             pyarmor reg pyarmor-reg.zip
-            Write-Host "PyArmor registration attempted."
           }
 
-      - name: Obfuscate with PyArmor (recursive) -> produces ./obf/...
+      - name: Obfuscate with PyArmor (recursive)
         shell: pwsh
         run: |
-          # obfuscate the copied source to ./obf using pyarmor
           $copiedEntry = (Join-Path (Get-Location) "build_src\pyscript\galaxytimer.py")
           if (-not (Test-Path $copiedEntry)) {
             Write-Error "Copied entry $copiedEntry not found. Aborting."
             exit 1
           }
           pyarmor obfuscate --recursive --output obf $copiedEntry
-          Write-Host "PyArmor obfuscation complete. Listing obf tree:"
-          Get-ChildItem -Recurse obf | Select-Object FullName -First 50 | ForEach-Object { Write-Host $_.FullName }
+          Write-Host "PyArmor obfuscation complete."
 
       - name: Locate obfuscated entry file
         id: findobf
@@ -117,7 +135,6 @@ jobs:
           $f = Get-ChildItem -Path .\obf -Filter 'galaxytimer.py' -Recurse -File | Select-Object -First 1
           if (-not $f) { Write-Error "Obfuscated entry file not found under ./obf"; exit 1 }
           Write-Host "Found obf entry: $($f.FullName)"
-          # set as output for later step
           Write-Output "::set-output name=obf_path::$($f.FullName)"
 
       - name: PyInstaller (pack obfuscated script -> onefile)
@@ -128,7 +145,6 @@ jobs:
           $entry = $env:OBF_PATH
           Write-Host "Using obfuscated entry: $entry"
 
-          # find icon (prefer build_src resources then repo Resources)
           $iconPaths = @(".\build_src\resources\icon\icon.ico", ".\build_src\Resources\icon\icon.ico", ".\resources\icon\icon.ico", ".\Resources\icon\icon.ico")
           $icon = $null
           foreach ($p in $iconPaths) {
@@ -136,7 +152,6 @@ jobs:
           }
           if ($icon) { Write-Host "Using icon: $icon" } else { Write-Host "Icon not found in expected paths; continuing without -i" }
 
-          # Run pyinstaller like your pack.bat: -w -F --hidden-import=pyttsx3 <entry> -i <icon>
           $args = @("--noconfirm","--clean","-F","--hidden-import=pyttsx3","--distpath",".\dist","--workpath",".\build")
           if ($icon) { $args += @("-i", $icon) }
           $args += $entry
@@ -146,24 +161,13 @@ jobs:
       - name: Rename and publish exe (move dist\galaxytimer.exe -> GalaxyTimer.exe)
         shell: pwsh
         run: |
-          # pyinstaller will create dist\<name>.exe where name is script basename (galaxytimer)
           $exePath = Join-Path -Path (Get-Location) -ChildPath "dist\galaxytimer.exe"
           if (Test-Path $exePath) {
             Move-Item -Force $exePath .\GalaxyTimer.exe
             Write-Host "Moved to GalaxyTimer.exe"
-          } else {
-            # try other guess
-            $candidate = Get-ChildItem -Path .\dist -Filter *.exe -File | Select-Object -First 1
-            if ($candidate) {
-              Move-Item -Force $candidate.FullName .\GalaxyTimer.exe
-              Write-Host "Moved candidate $($candidate.Name) to GalaxyTimer.exe"
-            } else {
-              Write-Error "No exe found in dist. PyInstaller probably failed."
-              exit 1
-            }
           }
 
-      - name: Clean intermediate build artifacts (optional, mirror pack.bat)
+      - name: Clean intermediate build artifacts (optional)
         shell: pwsh
         run: |
           Remove-Item -Recurse -Force -ErrorAction SilentlyContinue .\dist, .\build, .\obf, .\build_src

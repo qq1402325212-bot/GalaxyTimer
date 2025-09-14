@@ -39,29 +39,13 @@ jobs:
           New-Item -ItemType Directory -Force -Path build_src | Out-Null
           Copy-Item -Recurse -Force -Path .\pyscript -Destination .\build_src\pyscript
 
-          # Verify and copy each necessary module
+          # 确保复制逻辑文件夹
           $srcFolders = @("logic", "core", "widgets")
           foreach ($folder in $srcFolders) {
             if (Test-Path ".\pyscript\$folder") {
               Copy-Item -Recurse -Force -Path ".\pyscript\$folder" -Destination ".\build_src\pyscript\$folder"
             } else {
               Write-Host "Warning: Folder pyscript\$folder not found."
-            }
-          }
-
-      - name: Check and convert file encoding (for debugging)
-        shell: pwsh
-        run: |
-          $files = @("build_src\pyscript\galaxytimer.py", "build_src\pyscript\logic\*.py", "build_src\pyscript\widgets\*.py", "build_src\pyscript\core\*.py")
-          foreach ($file in $files) {
-            Get-ChildItem -Path $file | ForEach-Object {
-              try {
-                $content = Get-Content -Path $_.FullName -Raw -Encoding UTF8
-                Write-Host "File $_.FullName is UTF-8 encoded and opened successfully."
-              } catch {
-                Write-Error "Unable to read $_.FullName. It may not be valid UTF-8 or does not exist."
-                exit 1
-              }
             }
           }
 
@@ -82,9 +66,33 @@ jobs:
       - name: Build with PyInstaller
         shell: pwsh
         run: |
-          $iconPath = ".\resources\icon\icon.ico"  # 确认图标路径
+          $iconPath = ".\resources\icon\icon.ico"
           if (-not (Test-Path $iconPath)) {
             Write-Host "Icon not found, continuing without setting an icon."
             pyinstaller --noconfirm --onefile --hidden-import=pyttsx3 --hidden-import=PySide6 --hidden-import=keyboard --add-data "build_src\pyscript\logic;logic" --add-data "build_src\pyscript\core;core" --add-data "build_src\pyscript\widgets;widgets" $env:ENTRY
           } else {
-            pyinstaller --noconfirm --onefile --hidden-import=pyttsx3 --hidden-import=PySide6 --hidden-import=keyboard --icon=$iconPath --add-data "build_src▋
+            pyinstaller --noconfirm --onefile --hidden-import=pyttsx3 --hidden-import=PySide6 --hidden-import=keyboard --icon=$iconPath --add-data "build_src\pyscript\logic;logic" --add-data "build_src\pyscript\core;core" --add-data "build_src\pyscript\widgets;widgets" $env:ENTRY
+          }
+
+      - name: Rename and publish exe
+        shell: pwsh
+        run: |
+          $exePath = Join-Path -Path (Get-Location) -ChildPath "dist\galaxytimer.exe"
+          if (Test-Path $exePath) {
+            Move-Item -Force $exePath .\GalaxyTimer.exe
+            Write-Host "Moved to GalaxyTimer.exe"
+          } else {
+            Write-Error "GalaxyTimer.exe not found in the dist directory."
+          }
+
+      - name: Clean intermediate files (optional)
+        shell: pwsh
+        run: |
+          Remove-Item -Recurse -Force -ErrorAction SilentlyContinue .\dist, .\build
+          Get-ChildItem -Path . -Filter "*.spec" -File | ForEach-Object { Remove-Item -Force $_.FullName }
+
+      - name: Upload GalaxyTimer.exe artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: GalaxyTimer-exe
+          path: GalaxyTimer.exe

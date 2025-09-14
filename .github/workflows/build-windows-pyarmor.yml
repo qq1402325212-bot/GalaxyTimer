@@ -30,14 +30,47 @@ jobs:
           python -m pip install --upgrade pip setuptools wheel
           python -m pip install pyinstaller pyttsx3 PySide6  # 安装必要模块
 
-      - name: Install requirements if present
+      - name: Prepare build_src (copy sources + resources)
         shell: pwsh
         run: |
-          if (Test-Path requirements.txt) {
-            python -m pip install -r requirements.txt  # 安装其他依赖
+          Remove-Item -Force -ErrorAction SilentlyContinue .\GalaxyTimer.exe
+          Remove-Item -Recurse -Force -ErrorAction SilentlyContinue .\build_src, .\obf, .\dist, .\build
+
+          New-Item -ItemType Directory -Force -Path build_src | Out-Null
+          Copy-Item -Recurse -Force -Path .\pyscript -Destination .\build_src\pyscript
+
+          # 确保复制 logic, core, widgets 文件夹
+          if (Test-Path .\pyscript\logic) {
+            Copy-Item -Recurse -Force -Path .\pyscript\logic -Destination .\build_src\pyscript\logic
           } else {
-            Write-Host "No requirements.txt found."
+            Write-Host "Warning: logic folder not found."
           }
+          
+          if (Test-Path .\pyscript\core) {
+            Copy-Item -Recurse -Force -Path .\pyscript\core -Destination .\build_src\pyscript\core
+          } else {
+            Write-Host "Warning: core folder not found."
+          }
+
+          if (Test-Path .\pyscript\widgets) {
+            Copy-Item -Recurse -Force -Path .\pyscript\widgets -Destination .\build_src\pyscript\widgets
+          } else {
+            Write-Host "Warning: widgets folder not found."
+          }
+
+      - name: Inject build salt (optional)
+        shell: pwsh
+        run: |
+          $bytes = New-Object byte[] 12
+          $rng = New-Object System.Security.Cryptography.RNGCryptoServiceProvider
+          $rng.GetBytes($bytes)
+          $salt = [System.Convert]::ToBase64String($bytes) -replace '/','_' -replace '\+','-' -replace '=',''
+          if ($salt.Length -gt 16) { $salt = $salt.Substring(0,16) }
+          Write-Host "Generated SALT: $salt"
+          Add-Content -Path $env:GITHUB_ENV -Value "BUILD_SALT=$salt"
+
+          $entryPath = Join-Path -Path (Get-Location) -ChildPath $env:ENTRY
+          (Get-Content $entryPath -Raw) -replace "__BUILD_SALT__", $salt | Set-Content $entryPath -Encoding UTF8
 
       - name: Build with PyInstaller
         shell: pwsh
@@ -71,4 +104,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: GalaxyTimer-exe
-          path: GalaxyGTailmaexry-exe
+          path: GalaxyTimer.exe
